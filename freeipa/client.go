@@ -95,12 +95,12 @@ func (t *Error) Error() string {
 }
 
 // Connect connects to the FreeIPA server and performs an initial login.
-func Connect(host string, tspt http.RoundTripper, user, pw string) (*Client, error) {
+func Connect(host string, tspt http.RoundTripper, user, pw string) (*Client, string, error) {
 	jar, e := cookiejar.New(&cookiejar.Options{
 		PublicSuffixList: nil, // this should be fine, since we only use one server
 	})
 	if e != nil {
-		return nil, e
+		return nil, "", e
 	}
 	c := &Client{
 		host: host,
@@ -111,10 +111,11 @@ func Connect(host string, tspt http.RoundTripper, user, pw string) (*Client, err
 		user: user,
 		pw:   pw,
 	}
-	if e := c.login(); e != nil {
-		return nil, errors.WithMessage(e, "initial login failed")
+	s, e := c.login()
+	if e != nil {
+		return nil, s, errors.WithMessage(e, "initial login failed")
 	}
-	return c, nil
+	return c, s, nil
 }
 
 func ConnectWithKerberos(host string, tspt http.RoundTripper, k5ConnectOpts *KerberosConnectOptions) (*Client, error) {
@@ -151,7 +152,7 @@ func ConnectWithKerberos(host string, tspt http.RoundTripper, k5ConnectOpts *Ker
 		user:     k5ConnectOpts.Username,
 		k5client: k5client,
 	}
-	if e := c.login(); e != nil {
+	if _, e := c.login(); e != nil {
 		return nil, fmt.Errorf("initial login failed: %v", e)
 	}
 	return c, nil
@@ -165,7 +166,7 @@ func (c *Client) exec(req *request) (io.ReadCloser, error) {
 
 	if res.StatusCode == http.StatusUnauthorized {
 		res.Body.Close()
-		if e := c.login(); e != nil {
+		if _, e := c.login(); e != nil {
 			return nil, errors.WithMessage(e, "renewed login failed")
 		}
 		res, e = c.sendRequest(req)
@@ -182,9 +183,9 @@ func (c *Client) exec(req *request) (io.ReadCloser, error) {
 	return res.Body, nil
 }
 
-func (c *Client) login() error {
+func (c *Client) login() (string, error) {
 	if c.k5client != nil {
-		return c.loginWithKerberos()
+		return "", c.loginWithKerberos()
 	}
 
 	data := url.Values{
@@ -194,7 +195,7 @@ func (c *Client) login() error {
 
 	req, e := http.NewRequest(http.MethodPost, fmt.Sprintf("https://%v/ipa/session/login_password", c.host), strings.NewReader(data.Encode()))
 	if e != nil {
-		return errors.WithMessage(e, "building login HTTP request")
+		return "", errors.WithMessage(e, "building login HTTP request")
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -202,17 +203,19 @@ func (c *Client) login() error {
 
 	res, e := c.hc.Do(req)
 	if e != nil {
-		return e
+		return "", e
 	}
 	defer res.Body.Close()
 
+	activeServer := res.Header.Get("X-Upstream")
+
 	if res.StatusCode != http.StatusOK {
 		if res.StatusCode == http.StatusUnauthorized {
-			return unauthorizedHTTPResponseToFreeipaError(res)
+			return activeServer, unauthorizedHTTPResponseToFreeipaError(res)
 		}
-		return fmt.Errorf("unexpected http status code: %v", res.StatusCode)
+		return activeServer, fmt.Errorf("unexpected http status code: %v", res.StatusCode)
 	}
-	return nil
+	return activeServer, nil
 }
 
 func (c *Client) loginWithKerberos() error {

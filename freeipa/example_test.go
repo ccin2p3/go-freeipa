@@ -49,7 +49,7 @@ func Example_addUser() {
 			InsecureSkipVerify: true, // WARNING DO NOT USE THIS OPTION IN PRODUCTION
 		},
 	}
-	c, e := freeipa.Connect("dc1.test.local", tspt, "admin", "walrus123")
+	c, _, e := freeipa.Connect("dc1.test.local", tspt, "admin", "walrus123")
 	if e != nil {
 		log.Fatal(e)
 	}
@@ -77,7 +77,7 @@ func Example_errorHandling() {
 			InsecureSkipVerify: true, // WARNING DO NOT USE THIS OPTION IN PRODUCTION
 		},
 	}
-	c, e := freeipa.Connect("dc1.test.local", tspt, "admin", "walrus123")
+	c, _, e := freeipa.Connect("dc1.test.local", tspt, "admin", "walrus123")
 	if e != nil {
 		log.Fatal(e)
 	}
